@@ -45,6 +45,8 @@ def prepare(project, allow_pending=False):
         elif cid in mg and (mg[cid]["decision"] != a.get(cid, {}).get("decision")
                             or mg[cid]["decision"] != b.get(cid, {}).get("decision")):
             blocks.append("MEDGEMMA_REVIEWER_DISAGREEMENT")
+        if mg.get(cid, {}).get("processing_status") == "validation_failed":
+            blocks.append("MEDGEMMA_VALIDATION_FAILED")
         if not text.get(cid, {}).get("text_usable"):
             blocks.append(text.get(cid, {}).get("reason", "TEXT_QC_MISSING"))
         if cid not in selected:
@@ -62,16 +64,19 @@ def prepare(project, allow_pending=False):
                      "medgemma_confidence": mg.get(cid, {}).get("confidence"),
                      "medgemma_evidence_quote": mg.get(cid, {}).get("evidence_quote"),
                      "medgemma_reason": mg.get(cid, {}).get("reason"),
+                     "medgemma_processing_status": mg.get(cid, {}).get("processing_status", "pending" if needs_third else "not_required"),
+                     "medgemma_validation_error": mg.get(cid, {}).get("validation_error"),
                      "reviewer_a_json": canonical(a.get(cid)), "reviewer_b_json": canonical(b.get(cid)),
                      "medgemma_json": canonical(mg.get(cid)), "text_qc_json": canonical(text.get(cid)),
                      "images_qc_json": canonical(images[cid]), "selected_image_json": canonical(selected.get(cid)),
                      "adjudication_json": canonical(review), "split_group": groups[cid]["split_group"],
                      "label_status": "ACCEPTED_AB_CONSENSUS" if review["verified"] else
                                      "REJECTED_AB_CONSENSUS" if review["review_status"] == "rejected" else
+                                     "MEDGEMMA_FAILED_AWAITING_HUMAN" if mg.get(cid, {}).get("processing_status") == "validation_failed" else
                                      "MEDGEMMA_REVIEWED_AWAITING_HUMAN" if cid in mg else "MEDGEMMA_PENDING",
                      "medgemma_required": needs_third, "requires_human_label_review": needs_third,
                      "blocking_reasons": blocks, "human_review_completed": False})
-    final = progress["ai_complete"]
+    final = progress["pass_complete"]
     accepted_ab = [r for r in rows if r["label_status"] == "ACCEPTED_AB_CONSENSUS"]
     project.write("data/reviews/final_ab_accepted.parquet", accepted_ab)
     name = "final_review" if final else "pre_human_review_draft"
@@ -82,7 +87,7 @@ def prepare(project, allow_pending=False):
         for row in rows:
             stream.write(canonical(row) + "\n")
     temp.replace(path)
-    summary = {"status": "AI_COMPLETE_AWAITING_HUMAN" if final else "BLOCKED_MEDGEMMA_PENDING",
+    summary = {"status": "MEDGEMMA_PASS_COMPLETE_AWAITING_HUMAN" if final else "BLOCKED_MEDGEMMA_PENDING",
                "cases": len(rows), "medgemma": progress, "feasibility": support, "human_queue": queue,
                "label_human_queue": label_queue,
                "accepted_ab_cases": len(accepted_ab), "label_status_counts": dict(Counter(r["label_status"] for r in rows)),
@@ -90,5 +95,5 @@ def prepare(project, allow_pending=False):
                "review_file": str(path), "updated_at": now()}
     write_json(project.path("reports/pre_human_review.json"), summary)
     if not final and not allow_pending:
-        raise PipelineError("MedGemma reviews are incomplete; draft saved, final review was not emitted")
+        raise PipelineError("MedGemma pass is incomplete; draft saved, final review was not emitted")
     return summary

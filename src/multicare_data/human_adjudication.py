@@ -21,7 +21,11 @@ def _review_summary(row: dict) -> dict:
     fields = ("decision", "diagnosis_status", "disease_is_current", "evidence_quote", "evidence_valid",
               "evidence_start", "evidence_end", "multiple_target_diseases", "other_target_diseases",
               "confidence", "reason_codes", "reason", "source_decision")
-    return {field: row.get(field) for field in fields}
+    summary = {field: row.get(field) for field in fields}
+    for field in ("processing_status", "reported_decision", "validation_error", "evidence_alignment_json", "model_result_json"):
+        if field in row:
+            summary[field] = row[field]
+    return summary
 
 
 def _editable_fields(row: dict | None) -> dict:

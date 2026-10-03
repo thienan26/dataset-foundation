@@ -29,8 +29,10 @@ $env:TMP = $env:TEMP
 
 The MedGemma pass covers labels, deterministic-pass text, and decodable images.
 Each validated response is saved immediately in an immutable source-bound cache.
-Reruns resume without repeating accepted requests. Invalid outputs are recorded
-under `data/reviews/medgemma_failures` and stop the run without fabricating a review.
+Reruns resume without repeating completed requests. Under the current GGUF
+workflow, invalid outputs are recorded under `data/reviews/medgemma_failures`
+and routed to human review without aborting subsequent cases. The optional
+Transformers workflow still stops on invalid output.
 Prompts and output schemas are exported with `medgemma-export`.
 Alternatively run those jobs elsewhere and import JSONL lines containing
 `request_sha256`, `model`, and `result` with `medgemma-import path/to/results.jsonl`.

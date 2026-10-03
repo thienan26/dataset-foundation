@@ -223,7 +223,8 @@ def test_current_reviews_accepts_source_bound_chatgpt_and_claude_imports(tmp_pat
     assert current_reviews(project, "b", [sample])["case-1"]["model"] == "claude"
 
 
-def test_human_label_adjudication_export_import_is_source_bound_and_idempotent(tmp_path):
+@pytest.mark.parametrize("medgemma_status", [None, "valid", "validation_failed"])
+def test_human_label_adjudication_export_import_is_source_bound_and_idempotent(tmp_path, medgemma_status):
     project = Project(tmp_path)
     cases, articles, routes, labels, requirements, review_a, review_b = [], [], [], [], [], [], []
     specifications = [
@@ -262,6 +263,14 @@ def test_human_label_adjudication_export_import_is_source_bound_and_idempotent(t
     project.write("data/reviews/human_requirements.parquet", requirements)
     project.write("data/reviews/reviewer_a.parquet", review_a)
     project.write("data/reviews/reviewer_b.parquet", review_b)
+    if medgemma_status:
+        third = {**review_a[0], "processing_status": medgemma_status, "reported_decision": "accept",
+                 "model_result_json": '{"decision":"accept"}', "evidence_alignment_json": "null",
+                 "validation_error": None}
+        if medgemma_status == "validation_failed":
+            third.update(decision=None, evidence_valid=False, evidence_quote="",
+                         validation_error="Model quote is not a source span")
+        project.write("data/reviews/medgemma_labels.parquet", [third])
     schema_path = Path(__file__).parents[1] / "schemas" / "human_adjudication.json"
     (tmp_path / "schemas").mkdir()
     shutil.copyfile(schema_path, tmp_path / "schemas" / schema_path.name)
@@ -274,6 +283,13 @@ def test_human_label_adjudication_export_import_is_source_bound_and_idempotent(t
     queue_path = project.path("data/reviews/human_adjudication_input.jsonl")
     rows = [json.loads(line) for line in queue_path.read_text(encoding="utf-8").splitlines()]
     row = rows[0]
+    if medgemma_status:
+        assert row["medgemma_review"]["processing_status"] == medgemma_status
+        assert row["medgemma_review"]["reported_decision"] == "accept"
+        assert row["medgemma_review"]["model_result_json"] == '{"decision":"accept"}'
+        if medgemma_status == "validation_failed":
+            assert row["medgemma_review"]["decision"] is None
+            assert row["medgemma_review"]["validation_error"]
     quote = row["rule_review"]["evidence_quote"]
     start = row["rule_review"]["evidence_start"]
     row["human_adjudication"] = {

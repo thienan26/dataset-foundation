@@ -16,3 +16,25 @@ def unique_quote_span(text: str, quote: str) -> tuple[int, int] | None:
     start = text.index(quote)
     return start, start + len(quote)
 
+
+def align_whitespace_quote(text: str, quote: str) -> tuple[int, int] | None:
+    """Map a unique whitespace-only match back to untouched source offsets."""
+    def normalized(value):
+        chars, offsets = [], []
+        for match in re.finditer(r"(?P<space>(?:\s|\\r\\n|\\[nr])+)|.", value, re.DOTALL):
+            token = match[0]
+            chars.append(" " if match.lastgroup == "space" else token)
+            offsets.append((match.start(), match.end()))
+        return "".join(chars), offsets
+
+    if not quote.strip():
+        return None
+    source, offsets = normalized(text)
+    needle, _ = normalized(quote)
+    needle = needle.strip()
+    if not needle or source.count(needle) != 1:
+        return None
+    start = source.index(needle)
+    span = offsets[start][0], offsets[start + len(needle) - 1][1]
+    return span if unique_quote_span(text, text[span[0]:span[1]]) == span else None
+

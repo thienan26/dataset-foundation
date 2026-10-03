@@ -1,7 +1,6 @@
 """Source-bound MedGemma batch exchange and resumable endpoint inference."""
 from __future__ import annotations
 
-import base64
 import json
 import os
 import time
@@ -14,7 +13,7 @@ import jsonschema
 from dotenv import load_dotenv
 
 from .common import PipelineError, canonical, digest, file_hash, now, read_json, write_json
-from .evidence import unique_quote_span
+from .evidence import align_whitespace_quote, unique_quote_span
 from .llm_review import SYSTEM, label_payload
 from .review_schema import IMAGE_REVIEW, LABEL_REVIEW, TEXT_REVIEW
 from .sample import single_targets
@@ -74,6 +73,76 @@ def cache_path(project, key):
     return project.path(f"data/reviews/medgemma_cache/{key}.json")
 
 
+def failure_path(project, key):
+    return project.path(f"data/reviews/medgemma_failures/{key}.json")
+
+
+def grounded_result(job, result):
+    jsonschema.validate(result, SCHEMAS[job["kind"]])
+    result = dict(result)
+    alignment = None
+    if job["kind"] == "label" and result["evidence_quote"]:
+        source, quote = job["payload"]["raw_case_text"], result["evidence_quote"]
+        if unique_quote_span(source, quote) is None:
+            span = align_whitespace_quote(source, quote)
+            if span:
+                result["evidence_quote"] = source[span[0]:span[1]]
+                alignment = {"method": "source_whitespace_alignment_v001", "model_evidence_quote": quote,
+                             "source_start": span[0], "source_end": span[1]}
+    validate_result(job, result)
+    return result, alignment
+
+
+def prompt_text(job):
+    return SYSTEM + "\n" + canonical(job["payload"]) + "\nReturn only JSON matching this schema: " + canonical(job["schema"])
+
+
+def save_review(project, job, result, raw, attempts, alignment=None, recovered=None):
+    path = cache_path(project, job["request_sha256"])
+    saved = {**job, "result": result, "reviewed_at": now(), "model_version": raw.get("model", job["model"]),
+             "raw_response": raw, "attempts": attempts, "evidence_alignment": alignment,
+             "inference_artifact": read_json(project.path("models/medgemma_local.lock.json"))
+             if job.get("runtime") == "gguf" and project.path("models/medgemma_local.lock.json").exists() else None,
+             "recovered_from_failure_sha256": recovered}
+    if path.exists():
+        if read_json(path)["result"] != result:
+            raise PipelineError("Conflicting immutable MedGemma result")
+        return
+    # Readers never see a partially written cache entry.
+    temporary = path.with_suffix(".staging")
+    write_json(temporary, saved)
+    temporary.rename(path)
+
+
+def recover_failed_reviews(project, all_jobs):
+    recovered = 0
+    for job in all_jobs:
+        audit_path = failure_path(project, job["request_sha256"])
+        if cache_path(project, job["request_sha256"]).exists() or not audit_path.exists():
+            continue
+        audit = read_json(audit_path)
+        attempts = audit.get("attempts", [])
+        if (audit.get("case_id") != job["case_id"] or audit.get("request_sha256") != job["request_sha256"]
+                or not attempts):
+            continue
+        original = attempts[0].get("messages", [{}])[0].get("content", [{}])[0].get("text")
+        if original != prompt_text(job):
+            continue
+        for attempt in reversed(attempts):
+            try:
+                raw = attempt["response"]
+                choice = raw["choices"][0]
+                if choice.get("finish_reason") != "stop" or raw.get("model") != job["model"]:
+                    continue
+                result, alignment = grounded_result(job, json.loads(choice["message"]["content"]))
+            except (KeyError, IndexError, TypeError, json.JSONDecodeError, jsonschema.ValidationError, PipelineError):
+                continue
+            save_review(project, job, result, raw, attempts, alignment, file_hash(audit_path))
+            recovered += 1
+            break
+    return recovered
+
+
 def validate_result(job, result):
     jsonschema.validate(result, SCHEMAS[job["kind"]])
     if (job["kind"] == "label" and result["decision"] == "accept"
@@ -130,93 +199,42 @@ def import_results(project, input_path):
 
 
 def run(project, limit=25):
-    load_dotenv(project.path(".env"), override=False)
-    base = os.getenv("MEDGEMMA_BASE_URL", "").rstrip("/")
-    if not base:
-        raise PipelineError("Set MEDGEMMA_BASE_URL for a MedGemma chat-completions server, or use medgemma-import")
-    if not base.startswith(("https://", "http://127.0.0.1", "http://localhost")):
-        raise PipelineError("MedGemma endpoint must use HTTPS or a local HTTP server")
-    completed = 0
-    all_jobs = jobs(project)
-    pending_count = sum(not cache_path(project, j["request_sha256"]).exists() for j in all_jobs)
-    started = time.monotonic()
-    for job in all_jobs:
-        cache = cache_path(project, job["request_sha256"])
-        if cache.exists():
-            continue
-        if completed >= limit:
-            break
-        content = [{"type": "text", "text": SYSTEM + "\n" + canonical(job["payload"])
-                    + "\nReturn only JSON matching this schema: " + canonical(job["schema"])}]
-        if job["kind"] == "image":
-            from .image_qc import review_image_bytes
-            path = project.path(job["image_path"])
-            if file_hash(path) != job["image_sha256"]:
-                raise PipelineError("Source image changed since QC; rerun image-qc")
-            content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,"
-                           + base64.b64encode(review_image_bytes(path)).decode("ascii")}})
-        body = {"model": job["model"], "messages": [{"role": "user", "content": content}],
-                "temperature": 0, "max_tokens": job["max_output_tokens"],
-                "response_format": {"type": "json_object", "schema": job["schema"]}}
-        headers = {"Content-Type": "application/json"}
-        if os.getenv("MEDGEMMA_API_KEY"):
-            headers["Authorization"] = "Bearer " + os.environ["MEDGEMMA_API_KEY"]
-        attempts = []
-        cfg = project.config("medgemma")
-        for attempt in range(cfg.get("max_attempts", 3)):
-            request = urllib.request.Request(base + "/chat/completions", canonical(body).encode(), headers)
-            try:
-                with urllib.request.urlopen(request, timeout=cfg["timeout_seconds"]) as response:
-                    raw = json.load(response)
-                attempts.append({"messages": body["messages"], "response": raw})
-                choice = raw["choices"][0]
-                if choice.get("finish_reason") != "stop":
-                    raise PipelineError("MedGemma response incomplete; no review accepted")
-                result = json.loads(choice["message"]["content"])
-                validate_result(job, result)
-                break
-            except urllib.error.HTTPError as exc:
-                raise PipelineError(f"MedGemma HTTP {exc.code}; check endpoint/model access") from None
-            except (urllib.error.URLError, TimeoutError, KeyError, IndexError,
-                    json.JSONDecodeError, jsonschema.ValidationError, PipelineError) as exc:
-                write_json(project.path(f"data/reviews/medgemma_failures/{job['request_sha256']}.json"),
-                           {"request_sha256": job["request_sha256"], "case_id": job["case_id"],
-                            "attempts": attempts, "error": str(exc), "failed_at": now()})
-                if attempt + 1 == cfg.get("max_attempts", 3):
-                    raise PipelineError(f"MedGemma response failed validation for {job['case_id']}; audit saved") from None
-                body = {**body, "messages": [{"role": "user", "content": content + [
-                    {"type": "text", "text": "A previous attempt failed validation: " + str(exc)[:500]
-                     + ". Recheck the source. If the diagnosis cannot be supported by a unique literal quote, "
-                       "return uncertain rather than accept. Return JSON matching the schema."}]}]}
-        write_json(cache, {**job, "result": result, "reviewed_at": now(),
-                          "model_version": raw.get("model", job["model"]), "raw_response": raw,
-                          "attempts": attempts,
-                          "inference_artifact": read_json(project.path("models/medgemma_local.lock.json"))
-                          if job.get("runtime") == "gguf" and project.path("models/medgemma_local.lock.json").exists()
-                          else None}, immutable=True)
-        completed += 1
-        write_json(project.path("reports/medgemma_runtime.json"),
-                   {"status": "RUNNING", "scope": "human_conflicts" if len(all_jobs) <= 1170 else "configured",
-                    "total_jobs": len(all_jobs), "completed_total": len(all_jobs) - pending_count + completed,
-                    "pending_total": pending_count - completed, "last_case_id": job["case_id"],
-                    "elapsed_seconds": round(time.monotonic() - started, 1), "updated_at": now()})
-        print(f"MedGemma: {completed}/{limit} {job['kind']} {job['case_id']}", flush=True)
-    summary = {"new_reviews": completed, **apply_results(project)}
-    write_json(project.path("reports/medgemma_runtime.json"),
-               {"status": "AI_COMPLETE" if summary["ai_complete"] else "BATCH_COMPLETE", **summary})
-    return summary
+    from .medgemma_batch import run as run_batch
+    return run_batch(project, limit)
 
 
-def apply_results(project):
+def apply_results(project, all_jobs=None):
     from .image_qc import selection_key
+    from .medgemma_batch import terminal_failure
 
     texts = {r["case_id"]: r for r in project.rows("data/qc/text_qc.parquet")}
     images = {r["image_id"]: r for r in project.rows("data/qc/image_qc.parquet")}
-    labels, counts = [], Counter()
+    labels, counts, failed, decisions = [], Counter(), Counter(), Counter()
     pending = Counter()
-    for job in jobs(project):
+    all_jobs = jobs(project) if all_jobs is None else all_jobs
+    for job in all_jobs:
         path = cache_path(project, job["request_sha256"])
         if not path.exists():
+            failure = terminal_failure(project, job)
+            if failure:
+                failed[job["kind"]] += 1
+                if job["kind"] == "label":
+                    reported = None
+                    for attempt in reversed(failure.get("attempts", [])):
+                        try:
+                            reported = json.loads(attempt["response"]["choices"][0]["message"]["content"])
+                        except (KeyError, IndexError, TypeError, json.JSONDecodeError):
+                            continue
+                        break
+                    labels.append({**{k: job[k] for k in ("case_id", "candidate_disease", "raw_text_sha256",
+                                  "request_sha256", "model", "prompt_version")},
+                                   **{k: None for k in LABEL_REVIEW["properties"]},
+                                   "evidence_quote": "", "evidence_valid": False, "evidence_start": None,
+                                   "evidence_end": None, "reviewed_at": failure["failed_at"],
+                                   "processing_status": "validation_failed", "validation_error": failure["error"],
+                                   "reported_decision": reported.get("decision") if isinstance(reported, dict) else None,
+                                   "model_result_json": canonical(reported), "evidence_alignment_json": "null"})
+                continue
             pending[job["kind"]] += 1
             if job["kind"] != "label":
                 row = texts[job["case_id"]] if job["kind"] == "text" else images[job["image_id"]]
@@ -236,12 +254,15 @@ def apply_results(project):
         validate_result(job, result)
         counts[job["kind"]] += 1
         if job["kind"] == "label":
+            decisions[result["decision"]] += 1
             span = unique_quote_span(job["payload"]["raw_case_text"], result["evidence_quote"])
             labels.append({**result, **{k: job[k] for k in
                           ("case_id", "candidate_disease", "raw_text_sha256", "request_sha256", "model", "prompt_version")},
                            "evidence_valid": span is not None,
                            "evidence_start": span[0] if span else None, "evidence_end": span[1] if span else None,
-                           "reviewed_at": saved["reviewed_at"]})
+                           "reviewed_at": saved["reviewed_at"], "processing_status": "valid", "validation_error": None,
+                           "reported_decision": result["decision"], "model_result_json": canonical(result),
+                           "evidence_alignment_json": canonical(saved.get("evidence_alignment"))})
             continue
         row = texts[job["case_id"]] if job["kind"] == "text" else images[job["image_id"]]
         row.update({k: v for k, v in result.items() if k != "reason"})
@@ -258,15 +279,26 @@ def apply_results(project):
                                        and not result["visible_diagnosis_text"] and result["case_image_consistent"])
             row["reason"] = "PASS" if row["image_usable"] else "IMAGE_AI_REJECTED"
     project.write("data/reviews/medgemma_labels.parquet", labels)
-    project.write("data/qc/text_qc.parquet", list(texts.values()))
-    project.write("data/qc/image_qc.parquet", list(images.values()))
+    output = project.path("data/reviews/medgemma_labels.jsonl")
+    temp = output.with_suffix(".jsonl.tmp")
+    with temp.open("w", encoding="utf-8", newline="\n") as stream:
+        for row in labels:
+            stream.write(canonical(row) + "\n")
+    temp.replace(output)
+    has_qc = any(job["kind"] != "label" for job in all_jobs)
+    if has_qc:
+        project.write("data/qc/text_qc.parquet", list(texts.values()))
+        project.write("data/qc/image_qc.parquet", list(images.values()))
     selected = {}
     for image in sorted([r for r in images.values() if r["image_usable"]],
                         key=lambda r: selection_key(r, project.config("qc"))):
         selected.setdefault(image["case_id"], image)
-    project.write("data/qc/selected_images.parquet", list(selected.values()))
-    summary = {"completed": dict(counts), "pending": dict(pending),
-               "ai_complete": not pending, "selected_cases": len(selected), "updated_at": now()}
+    if has_qc:
+        project.write("data/qc/selected_images.parquet", list(selected.values()))
+    summary = {"completed": dict(counts), "failed": dict(failed), "pending": dict(pending),
+               "total_jobs": len(all_jobs), "processed_cases": sum(counts.values()) + sum(failed.values()),
+               "decision_counts": dict(decisions), "pass_complete": not pending,
+               "ai_complete": not pending and not failed, "selected_cases": len(selected), "updated_at": now()}
     write_json(project.path("reports/medgemma_progress.json"), summary)
     return summary
 
@@ -386,7 +418,12 @@ def run_gguf(project, limit=25):
                                    stdout=log, stderr=log,
                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         previous_base = os.environ.get("MEDGEMMA_BASE_URL")
+        keep_awake = False
         try:
+            if os.name == "nt":
+                import ctypes
+                # This process-only request is released at exit; no power settings change.
+                keep_awake = bool(ctypes.windll.kernel32.SetThreadExecutionState(0x80000001))
             ready = False
             for _ in range(120):
                 if process.poll() is not None:
@@ -407,6 +444,8 @@ def run_gguf(project, limit=25):
                        "model_artifact": lock, "result": result, "updated_at": now()})
             return result
         finally:
+            if keep_awake:
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
             if previous_base is None:
                 os.environ.pop("MEDGEMMA_BASE_URL", None)
             else:

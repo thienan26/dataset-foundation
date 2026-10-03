@@ -3,6 +3,7 @@ prompt_version: medgemma_review_v001
 max_output_tokens: 2048
 timeout_seconds: 900
 max_attempts: 3
+checkpoint_every: 5
 local_dtype: bfloat16
 scope: human_conflicts
 runtime: gguf
