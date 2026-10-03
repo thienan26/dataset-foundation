@@ -1,0 +1,10 @@
+# Pipeline methodology
+
+The executable CLI mirrors the order in the research contract. Acquisition obtains the pinned Zenodo record and checks each publisher checksum. Image archives are extracted without permitting path traversal. Normalization yields independent article, case and image entities while preserving the original tables unchanged. A pinned Disease Ontology revision drives disease discovery and high-recall alias screening; annotation rules record statuses and exact evidence and route single-target, no-target and multi-target cases separately.
+
+Gemini Reviewer A runs after exact evidence extraction and single-target routing, before final text/image QC. It receives one case narrative and one target disease, without the rule conclusion, title or image. Structured JSON is validated against a fixed schema. Python locates the returned evidence quote in the immutable case text and derives its offsets; invalid or ambiguous evidence cannot be accepted. The exact input snapshot, raw API response, normalized reviewer row and failure history are kept separately so interrupted review can resume without losing provenance. Reviewer B independently checks disagreements/uncertainty and a fixed random audit sample; human review resolves unresolved cases and audits the required subset. Gemini image review remains a separate multimodal QC stage and does not decide the diagnosis label.
+
+The supplied reference discusses MedGemma as a possible second pass after disagreement. This release keeps the predeclared independent Reviewer B plus human-adjudication path; MedGemma is an optional future experiment and is not a release dependency. Text/image QC creates model inputs, selects one source image, and preserves reason-coded rejections. Duplicate-aware grouping precedes feasibility, taxonomy freeze and grouped split. Evaluation runs before the write-once release.
+
+Every stage is restartable from its named Parquet/JSON outputs. Editing configs invalidates source or review signatures that depend on them. No training, retrieval index or deployment stage is part of this repository.
+

@@ -1,0 +1,9 @@
+version: dataset_v001
+taxonomy_version: taxonomy_v001
+minimum_classes: 2
+human_review_all_below: 500
+human_development_fraction: 0.10
+human_correctness_target: 0.95
+require_frozen_test_human_review: true
+copy_selected_images: true
+

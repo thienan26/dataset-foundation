@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Structured automated disease review result",
+  "type": "object",
+  "properties": {
+    "diagnosis_status": {"enum": ["confirmed", "probable", "suspected", "differential", "ruled_out", "historical", "unclear"]},
+    "disease_is_current": {"type": "boolean"},
+    "evidence_quote": {"type": "string"},
+    "multiple_target_diseases": {"type": "boolean"},
+    "other_target_diseases": {"type": "array", "items": {"type": "string"}},
+    "decision": {"enum": ["accept", "reject", "uncertain"]},
+    "reason": {"type": "string"}
+  },
+  "required": ["diagnosis_status", "disease_is_current", "evidence_quote", "multiple_target_diseases", "other_target_diseases", "decision", "reason"],
+  "additionalProperties": false
+}
+

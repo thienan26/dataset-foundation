@@ -1,0 +1,6 @@
+version: rules_v001
+accepted_status: confirmed
+statuses: [confirmed, probable, suspected, differential, ruled_out, historical, unclear]
+# A mention alone is never a confirmed label.
+collapse_ontology_ancestors: true
+

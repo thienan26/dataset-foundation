@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MultiCaRe label-only human adjudication",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "human_decision": {"enum": ["accept", "reject", "uncertain"]},
+    "human_status": {"enum": ["confirmed", "probable", "suspected", "differential", "ruled_out", "historical", "unclear"]},
+    "evidence_quote": {"type": "string"},
+    "multiple_target_diseases": {"type": "boolean"},
+    "reason_code": {"type": "string", "minLength": 1},
+    "reviewer_id": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "format": "date-time"}
+  },
+  "required": ["human_decision", "human_status", "evidence_quote", "multiple_target_diseases", "reason_code", "reviewer_id", "reviewed_at"]
+}

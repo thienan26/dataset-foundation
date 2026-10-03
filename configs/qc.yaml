@@ -1,0 +1,9 @@
+minimum_clinical_words: 30
+minimum_image_side: 64
+maximum_image_pixels: 80000000
+modality_preference: [ct, mri, x_ray, ultrasound, microscopy, photograph, unknown]
+near_text_jaccard: 0.90
+near_text_num_perm: 128
+near_image_hamming: 4
+title_fragment_words: 8
+

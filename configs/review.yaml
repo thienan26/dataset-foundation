@@ -1,0 +1,13 @@
+provider: gemini
+reviewer_a_model: gemini-3.5-flash-lite
+reviewer_b_model: gemini-3.6-flash
+qc_model: gemini-3.8-flash
+prompt_version: review_v002
+random_b_fraction: 0.10
+max_output_tokens: 1024
+thinking_level: low
+timeout_seconds: 300
+max_attempts: 3
+requests_per_minute: 10
+default_limit: 25
+

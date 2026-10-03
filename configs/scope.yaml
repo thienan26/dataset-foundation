@@ -1,0 +1,13 @@
+ontology: Human Disease Ontology
+ontology_repository: DiseaseOntology/HumanDiseaseOntology
+ontology_path: src/ontology/doid.obo
+ontology_commit: d9a7805b4877a258bdac53adf0e4338dbf841f32
+infectious_roots: ['DOID:0050117']
+# All descendants are discovered; these are scope roots, not final classes.
+excluded_concepts: ['DOID:0050117']
+minimum_alias_length: 3
+# Optional curated additions: concept ID -> list of disease/pathogen aliases.
+extra_aliases: {}
+# Optional reviewed annotations; tropical status is unknown without an annotation.
+tropical_concepts: []
+

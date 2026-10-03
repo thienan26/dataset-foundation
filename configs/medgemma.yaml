@@ -1,0 +1,13 @@
+model: google/medgemma-1.5-4b-it
+prompt_version: medgemma_review_v001
+max_output_tokens: 2048
+timeout_seconds: 900
+max_attempts: 3
+local_dtype: bfloat16
+scope: human_conflicts
+runtime: gguf
+gguf_repo: unsloth/medgemma-1.5-4b-it-GGUF
+gguf_filename: medgemma-1.5-4b-it-Q4_K_M.gguf
+local_port: 8087
+# OpenAI-compatible chat completions server serving this exact model.
+# Set MEDGEMMA_BASE_URL and optionally MEDGEMMA_API_KEY in .env.

@@ -1,0 +1,12 @@
+dataset: MultiCaRe
+version: 3.0.1
+record_id: '20416562'
+concept_record_id: '10079369'
+doi: 10.5281/zenodo.20416562
+record_url: https://zenodo.org/records/20416562
+api_url: https://zenodo.org/api/records/20416562
+verified_latest_at: '2026-10-02'
+license: CC-BY-NC-SA-4.0
+required_tables: [metadata.parquet, cases.parquet, case_images.parquet, captions_and_labels.csv, data_dictionary.csv]
+archive_names: [PMC1.zip, PMC2.zip, PMC3.zip, PMC4.zip, PMC5.zip, PMC6.zip, PMC7.zip, PMC8.zip, PMC9.zip]
+

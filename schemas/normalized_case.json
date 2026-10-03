@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Normalized MultiCaRe case",
+  "type": "object",
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "article_id": {"type": "string", "minLength": 1},
+    "raw_case_text": {"type": "string"},
+    "raw_text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "age": {},
+    "gender": {"type": ["string", "null"]},
+    "patient_link_id": {"type": ["string", "null"]}
+  },
+  "required": ["case_id", "article_id", "raw_case_text", "raw_text_sha256", "age", "gender", "patient_link_id"],
+  "additionalProperties": false
+}
+

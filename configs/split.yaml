@@ -1,0 +1,7 @@
+seed: 20261002
+test_fraction: 0.20
+development_folds: 5
+minimum_groups_per_class: 30
+preferred_groups_per_class: 50
+minimum_cases_per_class: 30
+

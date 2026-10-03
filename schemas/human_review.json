@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MultiCaRe human adjudication record",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "candidate_disease": {"type": "string", "minLength": 1},
+    "raw_text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "human_status": {"enum": ["confirmed", "probable", "suspected", "differential", "ruled_out", "historical", "unclear"]},
+    "human_decision": {"enum": ["accept", "reject", "uncertain"]},
+    "human_evidence_valid": {"type": "boolean"},
+    "evidence_quote": {"type": "string"},
+    "multiple_target_diseases": {"type": "boolean"},
+    "text_leakage_found": {"type": "boolean"},
+    "clinical_text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "selected_image_id": {"type": "string", "minLength": 1},
+    "image_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "image_relevance": {"enum": ["diagnostic", "supportive", "irrelevant", "post_treatment", "unclear"]},
+    "image_label_leakage": {"type": "boolean"},
+    "reason_code": {"type": "string", "minLength": 1},
+    "reviewer_id": {"type": "string", "minLength": 1},
+    "reviewed_at": {"type": "string", "format": "date-time"}
+  },
+  "required": ["case_id", "candidate_disease", "raw_text_sha256", "human_status", "human_decision", "human_evidence_valid", "evidence_quote", "multiple_target_diseases", "text_leakage_found", "clinical_text_sha256", "selected_image_id", "image_sha256", "image_relevance", "image_label_leakage", "reason_code", "reviewer_id", "reviewed_at"]
+}
+

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dataset gate report",
+  "type": "object",
+  "properties": {
+    "status": {"enum": ["PASS", "FAIL"]},
+    "source_version": {"type": "string"},
+    "source_verified": {"type": "boolean"},
+    "samples": {"type": "integer", "minimum": 0},
+    "failed_checks": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "evidence_exact_match_rate": {"type": "number", "minimum": 0, "maximum": 1}
+  },
+  "required": ["status", "source_version", "source_verified", "samples", "failed_checks", "evidence_exact_match_rate"],
+  "additionalProperties": false
+}
